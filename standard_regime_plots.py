@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from standard_regime import prandtl_tip_root, solve_section
 
 R = 0.7
 B = 6
@@ -27,115 +28,7 @@ def beta(mu):
 def chord(mu):
     return R * (0.18 - 0.06 * mu)
 
-def prandtl_tip_root(mu, a, ap, lam):
-    mu_root = R0 / R
-    mu = np.clip(mu, mu_root + 1e-8, 1.0 - 1e-8)
-
-    denom = max(1.0 + a, 1e-8)
-    sqrt_term = np.sqrt(1.0 + ((lam * mu * (1.0 - ap)) / denom) ** 2)
-
-    expo_tip = -(B / 2.0) * ((1.0 - mu) / mu) * sqrt_term
-    expo_root = -(B / 2.0) * ((mu - mu_root) / mu) * sqrt_term
-
-    f_tip_arg = np.exp(np.clip(expo_tip, -700.0, 0.0))
-    f_root_arg = np.exp(np.clip(expo_root, -700.0, 0.0))
-
-    f_tip_arg = np.clip(f_tip_arg, 0.0, 1.0)
-    f_root_arg = np.clip(f_root_arg, 0.0, 1.0)
-
-    f_tip = (2.0 / np.pi) * np.arccos(f_tip_arg)
-    f_root = (2.0 / np.pi) * np.arccos(f_root_arg)
-
-    F = f_tip * f_root
-    return np.clip(F, 1e-4, 1.0), f_tip, f_root
-
-def solve_section(mu, omega, lam, a0=0.05, ap0=0.01, max_iter=500, tol=1e-6, relax=0.25):
-    r = mu * R
-    c_local = chord(mu)
-    sigma = B * c_local / (2.0 * np.pi * r)
-
-    a = a0
-    ap = ap0
-    converged = False
-
-    for _ in range(max_iter):
-        Vax = U0 * (1.0 + a)
-        Vtan = omega * r * (1.0 - ap)
-
-        Vtan = max(Vtan, 1e-8)
-        phi = np.arctan2(Vax, Vtan)
-
-        s = np.sin(phi)
-        c = np.cos(phi)
-        s2 = max(s * s, 1e-10)
-        sc = np.sign(s * c) * max(abs(s * c), 1e-10)
-
-        alpha = beta(mu) - phi
-        alpha_deg = np.degrees(alpha)
-
-        cl = Cl(alpha_deg)
-        cd = Cd(alpha_deg)
-
-        Cn = cl * c - cd * s
-        Ctau = cl * s + cd * c
-
-        F, _, _ = prandtl_tip_root(mu, a, ap, lam)
-
-        kx = sigma * Cn / (4.0 * F * s2)
-        ky = sigma * Ctau / (4.0 * F * sc)
-
-        a_new = kx / max(1.0 - kx, 1e-8)
-        ap_new = ky / (1.0 + ky)
-
-        a_new = np.clip(a_new, -0.2, 3.0)
-        ap_new = np.clip(ap_new, -1.0, 1.0)
-
-        if abs(a_new - a) < tol and abs(ap_new - ap) < tol:
-            a = a_new
-            ap = ap_new
-            converged = True
-            break
-
-        a = (1.0 - relax) * a + relax * a_new
-        ap = (1.0 - relax) * ap + relax * ap_new
-
-    if not converged:
-        print(f"Warning: section at mu={mu:.4f} did not converge")
-
-    Vax = U0 * (1.0 + a)
-    Vtan = omega * r * (1.0 - ap)
-    phi = np.arctan2(Vax, max(Vtan, 1e-8))
-    alpha = beta(mu) - phi
-    alpha_deg = np.degrees(alpha)
-
-    cl = Cl(alpha_deg)
-    cd = Cd(alpha_deg)
-
-    W = np.hypot(Vax, Vtan)
-    q = 0.5 * rho * W**2
-
-    L = q * cl * c_local
-    D = q * cd * c_local
-
-    dF_ax_per_blade = L * np.cos(phi) - D * np.sin(phi)
-    dF_tan_per_blade = L * np.sin(phi) + D * np.cos(phi)
-
-    F, ftip, froot = prandtl_tip_root(mu, a, ap, lam)
-
-    return {
-        "a": a,
-        "ap": ap,
-        "phi": phi,
-        "alpha": alpha,
-        "W": W,
-        "Fax_blade": dF_ax_per_blade,
-        "Ftan_blade": dF_tan_per_blade,
-        "F": F,
-        "ftip": ftip,
-        "froot": froot,
-    }
-
-def evaluate_propeller(J, n_annuli=60):
+def evaluate_propeller(J, n_annuli=200):
     n_rev = U0 / (J * D_prop)
     RPM = 60.0 * n_rev
     omega = 2.0 * np.pi * n_rev
@@ -149,9 +42,9 @@ def evaluate_propeller(J, n_annuli=60):
     dT_arr = np.zeros(n_annuli)
     dQ_arr = np.zeros(n_annuli)
 
-    for i, mu in enumerate(mu_arr):
-        sol = solve_section(mu, omega=omega, lam=lam)
-
+    for i in range(len(mu_arr)-1):
+        sol = solve_section(mu_arr[i], mu_arr[i+1], omega=omega,)
+        mu = (mu_arr[i]+ mu_arr[i+1]) / 2.0
         r = mu * R
         dT_arr[i] = B * sol["Fax_blade"] * dr[i]
         dQ_arr[i] = B * sol["Ftan_blade"] * r * dr[i]
@@ -177,7 +70,7 @@ def evaluate_propeller(J, n_annuli=60):
         "eta": eta,
     }
 
-J_vals = np.linspace(0.0, 2.5, 40)
+J_vals = np.linspace(0.1, 2.7, 40)
 
 CT_vals = []
 CP_vals = []
@@ -194,25 +87,87 @@ CT_vals = np.array(CT_vals)
 CP_vals = np.array(CP_vals)
 eta_vals = np.array(eta_vals)
 
+
+def load_javafoil_data(filename):
+    """
+    Load JavaFoil output data from a text file.
+
+    Parameters:
+        filename : str
+            Path to the JavaFoil .txt file.
+
+    Returns:
+        dict :
+            Dictionary containing arrays:
+            - 'J'  : advance ratio (v/(nD))
+            - 'CT' : thrust coefficient
+            - 'CP' : power coefficient
+            - 'eta': propeller efficiency
+    """
+    data = []
+    with open(filename, 'r') as f:
+        for line in f:
+            # Skip empty lines or comment lines
+            if not line.strip() or line.startswith('[') or line.startswith('v/'):
+                continue
+            # Split line into columns
+            cols = line.split()
+            if len(cols) < 9:  # make sure enough columns
+                continue
+            # Extract relevant columns
+            try:
+                J = float(cols[0])
+                CT = float(cols[2])
+                CP = float(cols[3])
+                eta = float(cols[7]) / 100.0  # convert % to 0-1
+                data.append([J, CT, CP, eta])
+            except ValueError:
+                continue
+
+    data = np.array(data)
+    return {
+        'J': data[:,0],
+        'CT': data[:,1],
+        'CP': data[:,2],
+        'eta': data[:,3]
+    }
+
+
+# ===============================
+# 2️⃣ Example: Plot my data vs JavaFoil
+# ===============================
+
+# Load JavaFoil results
+jf_data = load_javafoil_data("javaprop_validation_plots.txt")
+
+# Assume your computed data arrays:
+# J_vals, CT_vals, CP_vals, eta_vals
+
 plt.figure()
-plt.plot(J_vals, CT_vals, marker='o')
-plt.xlabel("J")
+plt.plot(J_vals, CT_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['CT'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
 plt.ylabel(r"$C_T$")
 plt.title("Thrust Coefficient vs Advance Ratio")
+plt.legend()
 plt.grid(True)
 
 plt.figure()
-plt.plot(J_vals, CP_vals, marker='o')
-plt.xlabel("J")
+plt.plot(J_vals, CP_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['CP'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
 plt.ylabel(r"$C_P$")
 plt.title("Power Coefficient vs Advance Ratio")
+plt.legend()
 plt.grid(True)
 
 plt.figure()
-plt.plot(J_vals, eta_vals, marker='o')
-plt.xlabel("J")
+plt.plot(J_vals, eta_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['eta'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
 plt.ylabel(r"$\eta$")
 plt.title("Propeller Efficiency vs Advance Ratio")
+plt.legend()
 plt.grid(True)
 
 plt.show()
