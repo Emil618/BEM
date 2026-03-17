@@ -43,7 +43,7 @@ def evaluate_propeller(J, n_annuli=200):
     dQ_arr = np.zeros(n_annuli)
 
     for i in range(len(mu_arr)-1):
-        sol = solve_section(mu_arr[i], mu_arr[i+1], omega=omega,)
+        sol = solve_section(mu_arr[i], mu_arr[i+1], omega=omega)
         mu = (mu_arr[i]+ mu_arr[i+1]) / 2.0
         r = mu * R
         dT_arr[i] = B * sol["Fax_blade"] * dr[i]

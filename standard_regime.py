@@ -68,125 +68,30 @@ def prandtl_tip_root(mu, a, ap): # mu = r/R (radial position), a = axial inducti
     F = f_tip * f_root
     return np.clip(F, 1e-4, 1.0), f_tip, f_root
 
-def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax=0.1): 
+def CT_from_a(a, glauert=False):
+    CT = 4 * a * (1 - a)
 
-    """
-    This function iteratively computes the axial and tangential induction factors (a, a') for a 
-    radial annulus of a propeller, taking into account Prandtl's tip and root loss corrections 
-    and aerodynamic forces from lift and drag coefficients. It returns the local velocities, 
-    inflow angles, forces, and correction factors for the section.
+    if glauert:
+        CT1 = 1.816
+        a1 = 1 - np.sqrt(CT1) / 2
 
-    Parameters:
-        mu1 : float
-            Non-dimensional radial position at the inner edge of the annulus (r/R).
-        mu2 : float
-            Non-dimensional radial position at the outer edge of the annulus (r/R).
-        a0 : float, optional
-            Initial guess for axial induction factor (default: 0.3).
-        ap0 : float, optional
-            Initial guess for tangential induction factor (default: 0.01).
-        max_iter : int, optional
-            Maximum number of iterations for convergence (default: 500).
-        tol : float, optional
-            Convergence tolerance for induction factors (default: 1e-6).
-        relax : float, optional
-            Relaxation factor for iterative updates of a and a' (default: 0.25).
+        if a > a1:
+            CT = CT1 - 4 * (np.sqrt(CT1) - 1) * (1 - a)
 
-    Returns:
-        dict :
-            Dictionary containing the following outputs for the blade section:
-            - "a" : float
-                Axial induction factor.
-            - "ap" : float
-                Tangential induction factor.
-            - "phi" : float
-                Inflow angle at the section [rad].
-            - "alpha" : float
-                Angle of attack at the section [rad].
-            - "W" : float
-                Relative wind speed at the section [m/s].
-            - "Fax_blade" : float
-                Axial force per blade at the section [N].
-            - "Ftan_blade" : float
-                Tangential force per blade at the section [N].
-            - "F" : float
-                Prandtl tip/root loss correction factor.
-            - "ftip" : float
-                Tip loss factor.
-            - "froot" : float
-                Root loss factor.
-    """
+    return CT
 
-    mu = (mu1 + mu2) / 2.0 # Midpoint of the annulus for calculations
-    Area = np.pi * R**2 * (mu2**2 - mu1**2) # Area of the annulus corresponding to the blade element
-    r = mu * R #Radial position of the blade element in meters
-    c_local = chord(mu) #Chord length at the blade element in meters
-    sigma = B * c_local / (2.0 * np.pi * r) #Local solidity of the blade element
 
-    # Initialize induction factors
-    a = a0
-    ap = ap0
-    converged = False
+def a_from_CT(CT):
+    CT1 = 1.816
+    CT2 = 2 * np.sqrt(CT1) - CT1
 
-    # Iteratively solve for a and ap using the blade element momentum theory
-    for _ in range(max_iter):
-        Vax = U0 * (1.0 + a) #Axial velocity at the blade section
-        Vtan = omega * r * (1.0 - ap) #Tangential velocity at the blade section
+    if CT >= CT2:
+        a = 1 + (CT - CT1) / (4 * (np.sqrt(CT1) - 1))
+    else:
+        a = 0.5 - 0.5 * np.sqrt(max(1 - CT, 1e-8))
 
-        Vtan = max(Vtan, 1e-8)
-        phi = np.arctan2(Vax, Vtan) #Inflow angle at the blade section
+    return a
 
-        s = np.sin(phi)
-        c = np.cos(phi)
-        s2 = max(s * s, 1e-10)
-        sc = np.sign(s * c) * max(abs(s * c), 1e-10)
-
-        alpha = beta(mu) - phi #Angle of attack at the blade section based on blade geometry and inflow angle
-        alpha_deg = np.degrees(alpha)
-
-        cl = Cl(alpha_deg) # Lift coefficient at the blade section based on angle of attack
-        cd = Cd(alpha_deg) # Drag coefficient at the blade section based on angle of attack
-
-        Cn = cl * c + cd * s # Normal force coefficient at the blade section
-        Ct = cl * s - cd * c # Tangential force coefficient at the blade section
-
-        F, _, _ = prandtl_tip_root(mu, a, ap) # Calculating Prandtl's tip and root loss correction factor
-
-        kx = sigma * Cn / (4.0 * F * s2) # Intermediate variable for axial induction factor update based on momentum theory
-        ky = sigma * Ct / (4.0 * F * sc) # Intermediate variable for tangential induction factor update based on momentum theory
-
-        a_new = kx / max(1.0 - kx, 1e-8) # Update axial induction factor based on momentum theory nad linearization of root finding
-        ap_new = ky / (1.0 + ky) # Update tangential induction factor based on momentum theory and linearization of root finding
-
-        a_new = np.clip(a_new, -0.2, 3.0)
-        ap_new = np.clip(ap_new, -1.0, 1.0)
-
-        if abs(a_new - a) < tol and abs(ap_new - ap) < tol:
-            a = a_new
-            ap = ap_new
-            converged = True
-            break
-
-        a = (1.0 - relax) * a + relax * a_new
-        ap = (1.0 - relax) * ap + relax * ap_new
-
-    if not converged:
-        print(f"Warning: section at mu={mu:.4f} did not converge")
-
-    Vax = U0 * (1.0 + a)
-    Vtan = omega * r * (1.0 - ap)
-    phi = np.arctan2(Vax, max(Vtan, 1e-8))
-    alpha = beta(mu) - phi
-    alpha_deg = np.degrees(alpha)
-
-    cl = Cl(alpha_deg)
-    cd = Cd(alpha_deg)
-
-    W = np.hypot(Vax, Vtan)
-    q = 0.5 * rho * W**2
-
-    L = q * cl * c_local
-    D = q * cd * c_local
 
 def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax=0.1): 
 
@@ -272,11 +177,17 @@ def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax
 
         F, _, _ = prandtl_tip_root(mu, a, ap) # Calculating Prandtl's tip and root loss correction factor
 
-        kx = sigma * Cn / (4.0 * F * s2) # Intermediate variable for axial induction factor update based on momentum theory
+        # kx = sigma * Cn / (4.0 * F * s2) # Intermediate variable for axial induction factor update based on momentum theory
         ky = sigma * Ct / (4.0 * F * sc) # Intermediate variable for tangential induction factor update based on momentum theory
 
-        a_new = kx / max(1.0 - kx, 1e-8) # Update axial induction factor based on momentum theory nad linearization of root finding
+        # a_new = kx / max(1.0 - kx, 1e-8) # Update axial induction factor based on momentum theory nad linearization of root finding
         ap_new = ky / (1.0 + ky) # Update tangential induction factor based on momentum theory and linearization of root finding
+
+        # Local thrust coefficient (annulus form)
+        CT_loc = sigma * Cn / (F * s2)
+
+        # Convert CT → a using Glauert correction
+        a_new = a_from_CT(CT_loc)
 
         a_new = np.clip(a_new, -0.2, 3.0)
         ap_new = np.clip(ap_new, -1.0, 1.0)
@@ -395,7 +306,7 @@ def prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section):
     }
 
 
-test = False
+test = True
 if test == True:
     n_annuli = 200
     results = prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section)
