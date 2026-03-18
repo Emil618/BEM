@@ -48,25 +48,29 @@ def chord(mu): # mu = r/R
 
 def prandtl_tip_root(mu, a, ap): # mu = r/R (radial position), a = axial induction factor, ap = tangential induction factor
     mu_root = R0 / R
-    mu = np.clip(mu, mu_root + 1e-8, 1.0 - 1e-8)
+    # mu = np.clip(mu, mu_root + 1e-8, 1.0 - 1e-8)
 
-    denom = max(1.0 + a, 1e-8)
+    # denom = max(1.0 + a, 1e-8)
+    denom = 1+a
     sqrt_term = np.sqrt(1.0 + ((lam * mu) / denom) ** 2)
 
     expo_tip = -(B / 2.0) * ((1.0 - mu) / mu) * sqrt_term
     expo_root = -(B / 2.0) * ((mu - mu_root) / mu) * sqrt_term
 
-    f_tip_arg = np.exp(np.clip(expo_tip, -700.0, 0.0))
-    f_root_arg = np.exp(np.clip(expo_root, -700.0, 0.0))
+    # f_tip_arg = np.exp(np.clip(expo_tip, -700.0, 0.0))
+    # f_root_arg = np.exp(np.clip(expo_root, -700.0, 0.0))
+    f_tip_arg = np.exp(expo_tip)
+    f_root_arg = np.exp(expo_root)
 
-    f_tip_arg = np.clip(f_tip_arg, 0.0, 1.0)
-    f_root_arg = np.clip(f_root_arg, 0.0, 1.0)
+    # f_tip_arg = np.clip(f_tip_arg, 0.0, 1.0)
+    # f_root_arg = np.clip(f_root_arg, 0.0, 1.0)
 
     f_tip = (2.0 / np.pi) * np.arccos(f_tip_arg)
     f_root = (2.0 / np.pi) * np.arccos(f_root_arg)
 
     F = f_tip * f_root
-    return np.clip(F, 1e-4, 1.0), f_tip, f_root
+    # return np.clip(F, 1e-4, 1.0), f_tip, f_root
+    return F, f_tip, f_root
 
 def CT_from_a(a, glauert=False):
     CT = 4 * a * (1 - a)
@@ -158,13 +162,14 @@ def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax
         Vax = U0 * (1.0 + a) #Axial velocity at the blade section
         Vtan = omega * r * (1.0 - ap) #Tangential velocity at the blade section
 
-        Vtan = max(Vtan, 1e-8)
+        # Vtan = max(Vtan, 1e-8)
         phi = np.arctan2(Vax, Vtan) #Inflow angle at the blade section
 
         s = np.sin(phi)
         c = np.cos(phi)
-        s2 = max(s * s, 1e-10)
-        sc = np.sign(s * c) * max(abs(s * c), 1e-10)
+        s2 = s*s
+        # sc = np.sign(s * c) * max(abs(s * c), 1e-10)
+        sc = s * c
 
         alpha = beta(mu) - phi #Angle of attack at the blade section based on blade geometry and inflow angle
         alpha_deg = np.degrees(alpha)
@@ -172,25 +177,25 @@ def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax
         cl = Cl(alpha_deg) # Lift coefficient at the blade section based on angle of attack
         cd = Cd(alpha_deg) # Drag coefficient at the blade section based on angle of attack
 
-        Cn = cl * c + cd * s # Normal force coefficient at the blade section
-        Ct = cl * s - cd * c # Tangential force coefficient at the blade section
+        Cn = cl * c - cd * s # Normal force coefficient at the blade section
+        Ct = cl * s + cd * c # Tangential force coefficient at the blade section
 
         F, _, _ = prandtl_tip_root(mu, a, ap) # Calculating Prandtl's tip and root loss correction factor
 
         # kx = sigma * Cn / (4.0 * F * s2) # Intermediate variable for axial induction factor update based on momentum theory
-        ky = sigma * Ct / (4.0 * F * sc) # Intermediate variable for tangential induction factor update based on momentum theory
+        ky = max(sigma * Ct / (4.0 * F * sc), 1e-8) # Intermediate variable for tangential induction factor update based on momentum theory
 
         # a_new = kx / max(1.0 - kx, 1e-8) # Update axial induction factor based on momentum theory nad linearization of root finding
-        ap_new = ky / (1.0 + ky) # Update tangential induction factor based on momentum theory and linearization of root finding
-
+        # ap_new = ky / (1.0 + ky) # Update tangential induction factor based on momentum theory and linearization of root finding
+        ap_new = (-1.0 + np.sqrt(1.0 + 4.0 * ky)) / 2.0
         # Local thrust coefficient (annulus form)
         CT_loc = sigma * Cn / (F * s2)
 
         # Convert CT → a using Glauert correction
         a_new = a_from_CT(CT_loc)
 
-        a_new = np.clip(a_new, -0.2, 3.0)
-        ap_new = np.clip(ap_new, -1.0, 1.0)
+        # a_new = np.clip(a_new, -0.2, 3.0)
+        # ap_new = np.clip(ap_new, -1.0, 1.0)
 
         if abs(a_new - a) < tol and abs(ap_new - ap) < tol:
             a = a_new
@@ -206,7 +211,8 @@ def solve_section(mu1,mu2,omega, a0=0.3, ap0=0.01, max_iter=500, tol=1e-6, relax
 
     Vax = U0 * (1.0 + a)
     Vtan = omega * r * (1.0 - ap)
-    phi = np.arctan2(Vax, max(Vtan, 1e-8))
+    # phi = np.arctan2(Vax, max(Vtan, 1e-8))
+    phi = np.arctan2(Vax, Vtan)
     alpha = beta(mu) - phi
     alpha_deg = np.degrees(alpha)
 
@@ -254,25 +260,25 @@ def prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section):
         dict with arrays: mu_arr, a_arr, ap_arr, phi_arr, alpha_arr, W_arr, F_arr,
                           dT_arr, dQ_arr, r_arr, Thrust, Torque, Power, eta
     """
-    mu_arr = np.linspace(R0 / R, 1.0, n_annuli)
-    r_arr = mu_arr * R
-    dr = np.gradient(r_arr)
+    mu_arr_sides = np.linspace(R0 / R, 1.0, n_annuli)
+    mu_arr = np.zeros(n_annuli - 1)
+    r_arr = np.zeros(n_annuli - 1)
+    a_arr = np.zeros(n_annuli-1)
+    ap_arr = np.zeros(n_annuli-1)
+    phi_arr = np.zeros(n_annuli-1)
+    alpha_arr = np.zeros(n_annuli-1)
+    W_arr = np.zeros(n_annuli-1)
+    F_arr = np.zeros(n_annuli-1)
 
-    a_arr = np.zeros(n_annuli)
-    ap_arr = np.zeros(n_annuli)
-    phi_arr = np.zeros(n_annuli)
-    alpha_arr = np.zeros(n_annuli)
-    W_arr = np.zeros(n_annuli)
-    F_arr = np.zeros(n_annuli)
-
-    dT_arr = np.zeros(n_annuli)
-    dQ_arr = np.zeros(n_annuli)
+    dT_arr = np.zeros(n_annuli-1)
+    dQ_arr = np.zeros(n_annuli-1)
 
     for i in range(n_annuli - 1):
-        sol = solve_section(mu_arr[i], mu_arr[i+1], omega, lam)  # BEM solution for annulus
-        mu = (mu_arr[i] + mu_arr[i+1]) / 2.0  # midpoint for storing results
+        sol = solve_section(mu_arr_sides[i], mu_arr_sides[i+1], omega, lam)  # BEM solution for annulus
+        mu = (mu_arr_sides[i] + mu_arr_sides[i+1]) / 2.0  # midpoint for storing results
         r = mu * R
-
+        mu_arr[i] = mu
+        r_arr[i] = r
         a_arr[i] = sol["a"]
         ap_arr[i] = sol["ap"]
         phi_arr[i] = np.degrees(sol["phi"])
@@ -280,8 +286,8 @@ def prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section):
         W_arr[i] = sol["W"]
         F_arr[i] = sol["F"]
 
-        dT_arr[i] = B * sol["Fax_blade"] * dr[i]
-        dQ_arr[i] = B * sol["Ftan_blade"] * r * dr[i]
+        dT_arr[i] = B * sol["Fax_blade"] * R*(mu_arr_sides[i+1] - mu_arr_sides[i])
+        dQ_arr[i] = B * sol["Ftan_blade"] * r * R*(mu_arr_sides[i+1] - mu_arr_sides[i])
 
     Thrust = np.sum(dT_arr)
     Torque = np.sum(dQ_arr)
@@ -306,9 +312,9 @@ def prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section):
     }
 
 
-test = True
+test = False
 if test == True:
-    n_annuli = 200
+    n_annuli = 40
     results = prop_performance(B, R, R0, U0, omega, lam, n_annuli, solve_section)
 
     # -------------------------
@@ -373,3 +379,15 @@ if test == True:
     plt.legend()
     plt.grid(True)
     plt.show()
+
+    mu = results["mu_arr"]
+    F = [prandtl_tip_root(m, results["a_arr"][i], results["ap_arr"][i])[0] for i, m in enumerate(mu)]
+    plt.figure()
+    plt.plot(mu, F, label="F (Prandtl)")
+    plt.xlabel("r/R")
+    plt.ylabel("F")
+    plt.title("Prandtl's Tip and Root Loss Factor")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    

@@ -35,19 +35,19 @@ def evaluate_propeller(J, n_annuli=200):
     lam = omega * R / U0
 
     mu_root = R0 / R
-    mu_arr = np.linspace(mu_root + 1e-3, 0.999, n_annuli)
-    r_arr = mu_arr * R
-    dr = np.gradient(r_arr)
+    mu_arr_sides = np.linspace(mu_root, 1, n_annuli)
+    mu_array = np.zeros(n_annuli-1)
 
-    dT_arr = np.zeros(n_annuli)
-    dQ_arr = np.zeros(n_annuli)
+    dT_arr = np.zeros(n_annuli-1)
+    dQ_arr = np.zeros(n_annuli-1)
 
-    for i in range(len(mu_arr)-1):
-        sol = solve_section(mu_arr[i], mu_arr[i+1], omega=omega)
-        mu = (mu_arr[i]+ mu_arr[i+1]) / 2.0
+    for i in range(len(mu_arr_sides)-1):
+        sol = solve_section(mu_arr_sides[i], mu_arr_sides[i+1], omega=omega)
+        mu = (mu_arr_sides[i]+ mu_arr_sides[i+1]) / 2.0
+        mu_array[i] = mu
         r = mu * R
-        dT_arr[i] = B * sol["Fax_blade"] * dr[i]
-        dQ_arr[i] = B * sol["Ftan_blade"] * r * dr[i]
+        dT_arr[i] = B * sol["Fax_blade"] * R*(mu_arr_sides[i+1] - mu_arr_sides[i])
+        dQ_arr[i] = B * sol["Ftan_blade"] * r * R*(mu_arr_sides[i+1] - mu_arr_sides[i])
 
     Thrust = np.sum(dT_arr)
     Torque = np.sum(dQ_arr)
@@ -70,7 +70,7 @@ def evaluate_propeller(J, n_annuli=200):
         "eta": eta,
     }
 
-J_vals = np.linspace(0.1, 2.7, 40)
+J_vals = np.linspace(0.1, 2.7, 30)
 
 CT_vals = []
 CP_vals = []
