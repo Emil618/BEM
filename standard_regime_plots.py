@@ -55,7 +55,10 @@ def evaluate_propeller(J, n_annuli=200):
 
     CT = Thrust / (rho * n_rev**2 * D_prop**4)
     CP = Power / (rho * n_rev**3 * D_prop**5)
-    eta = (J * CT / CP) if CP > 0 else np.nan
+    Tc = Thrust / (rho * U0**2 * (2*R)**2)
+    Pc = Power / (rho * U0**3 * (2*R)**2)
+    eta_prop = (J * CT / CP) if CP > 0 else np.nan
+    eta_harv = -Pc * 8/np.pi if Pc < 0 else np.nan
 
     return {
         "J": J,
@@ -67,25 +70,38 @@ def evaluate_propeller(J, n_annuli=200):
         "Power": Power,
         "CT": CT,
         "CP": CP,
-        "eta": eta,
+        "Tc": Tc,
+        "Pc": Pc,
+        "eta_prop": eta_prop,
+        "eta_harv": eta_harv
     }
 
-J_vals = np.linspace(0.1, 2.7, 30)
+#Validation propulsive regime
+J_vals = np.linspace(0.1, 2.6, 40)
 
 CT_vals = []
 CP_vals = []
-eta_vals = []
+Tc_vals = []
+Pc_vals = []
+eta_prop_vals = []
+eta_harv_vals = []
 
 for J in J_vals:
     res = evaluate_propeller(J)
     CT_vals.append(res["CT"])
     CP_vals.append(res["CP"])
-    eta_vals.append(res["eta"])
-    print(f"J={J:.3f}, CT={res['CT']:.5f}, CP={res['CP']:.5f}, eta={res['eta']:.5f}")
+    Tc_vals.append(res["Tc"])
+    Pc_vals.append(res["Pc"])
+    eta_prop_vals.append(res["eta_prop"])
+    eta_harv_vals.append(res["eta_harv"])
+    print(f"J={J:.3f}, CT={res['CT']:.5f}, CP={res['CP']:.5f}, eta_prop={res['eta_prop']:.5f}, eta_harv={res['eta_harv']:.5f}")
 
 CT_vals = np.array(CT_vals)
 CP_vals = np.array(CP_vals)
-eta_vals = np.array(eta_vals)
+Tc_vals = np.array(Tc_vals)
+Pc_vals = np.array(Pc_vals)
+eta_prop_vals = np.array(eta_prop_vals)
+eta_harv_vals = np.array(eta_harv_vals)
 
 
 def load_javafoil_data(filename):
@@ -119,8 +135,10 @@ def load_javafoil_data(filename):
                 J = float(cols[0])
                 CT = float(cols[2])
                 CP = float(cols[3])
+                TC = float(cols[5])*np.pi/8  # Thrust coefficient (if needed)
+                PC = float(cols[6])*np.pi/8  # Power coefficient (if needed)
                 eta = float(cols[7]) / 100.0  # convert % to 0-1
-                data.append([J, CT, CP, eta])
+                data.append([J, CT, CP, eta,TC,PC])
             except ValueError:
                 continue
 
@@ -129,7 +147,9 @@ def load_javafoil_data(filename):
         'J': data[:,0],
         'CT': data[:,1],
         'CP': data[:,2],
-        'eta': data[:,3]
+        'eta': data[:,3],
+        'TC': data[:,4],
+        'PC': data[:,5]
     }
 
 
@@ -162,12 +182,168 @@ plt.legend()
 plt.grid(True)
 
 plt.figure()
-plt.plot(J_vals, eta_vals, 'o-', label='My BEM')
+plt.plot(J_vals, eta_prop_vals, 'o-', label='My BEM')
 plt.plot(jf_data['J'], jf_data['eta'], 's--', label='JavaFoil')
 plt.xlabel("Advance ratio J")
-plt.ylabel(r"$\eta$")
+plt.ylabel(r"$\eta_{prop}$")
 plt.title("Propeller Efficiency vs Advance Ratio")
 plt.legend()
 plt.grid(True)
 
+plt.show()
+
+plt.figure()
+plt.plot(J_vals, Tc_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['TC'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$C_T$")
+plt.title("Thrust Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+plt.figure()
+plt.plot(J_vals, Pc_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['PC'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$P_C$")
+plt.title("Power Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Validation energy harvesting regime
+J_vals = np.linspace(2.5, 4, 30)
+
+CT_vals = []
+CP_vals = []
+Tc_vals = []
+Pc_vals = []
+eta_prop_vals = []
+eta_harv_vals = []
+
+for J in J_vals:
+    res = evaluate_propeller(J)
+    CT_vals.append(res["CT"])
+    CP_vals.append(res["CP"])
+    Tc_vals.append(res["Tc"])
+    Pc_vals.append(res["Pc"])
+    eta_prop_vals.append(res["eta_prop"])
+    eta_harv_vals.append(res["eta_harv"])
+    print(f"J={J:.3f}, CT={res['CT']:.5f}, CP={res['CP']:.5f}, eta_prop={res['eta_prop']:.5f}, eta_harv={res['eta_harv']:.5f}")
+
+CT_vals = np.array(CT_vals)
+CP_vals = np.array(CP_vals)
+Tc_vals = np.array(Tc_vals)
+Pc_vals = np.array(Pc_vals)
+eta_prop_vals = np.array(eta_prop_vals)
+eta_harv_vals = np.array(eta_harv_vals)
+
+
+def load_javafoil_data(filename):
+    """
+    Load JavaFoil output data from a text file.
+
+    Parameters:
+        filename : str
+            Path to the JavaFoil .txt file.
+
+    Returns:
+        dict :
+            Dictionary containing arrays:
+            - 'J'  : advance ratio (v/(nD))
+            - 'CT' : thrust coefficient
+            - 'CP' : power coefficient
+            - 'eta': propeller efficiency
+    """
+    data = []
+    with open(filename, 'r') as f:
+        for line in f:
+            # Skip empty lines or comment lines
+            if not line.strip() or line.startswith('[') or line.startswith('v/'):
+                continue
+            # Split line into columns
+            cols = line.split()
+            if len(cols) < 9:  # make sure enough columns
+                continue
+            # Extract relevant columns
+            try:
+                J = float(cols[0])
+                CT = float(cols[2])
+                CP = float(cols[3])
+                TC = float(cols[5])*np.pi/8  # Thrust coefficient (if needed)
+                PC = float(cols[6])*np.pi/8  # Power coefficient (if needed)
+                eta = float(cols[7]) / 100.0  # convert % to 0-1
+                data.append([J, CT, CP, eta,TC,PC])
+            except ValueError:
+                continue
+
+    data = np.array(data)
+    return {
+        'J': data[:,0],
+        'CT': data[:,1],
+        'CP': data[:,2],
+        'eta': data[:,3],
+        'TC': data[:,4],
+        'PC': data[:,5]
+    }
+
+
+# ===============================
+# 2️⃣ Example: Plot my data vs JavaFoil
+# ===============================
+
+# Load JavaFoil results
+jf_data = load_javafoil_data("javaprop_validation_2.txt")
+
+# Assume your computed data arrays:
+# J_vals, CT_vals, CP_vals, eta_vals
+
+plt.figure()
+plt.plot(J_vals, CT_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['CT'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$C_T$")
+plt.title("Thrust Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+
+plt.figure()
+plt.plot(J_vals, CP_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['CP'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$C_P$")
+plt.title("Power Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+
+plt.figure()
+plt.plot(J_vals, eta_harv_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], -8*jf_data['PC']/np.pi, 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$\eta_{harv}$")
+plt.title("Harvesting Efficiency vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+
+plt.show()
+
+plt.figure()
+plt.plot(J_vals, Tc_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['TC'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$C_T$")
+plt.title("Thrust Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+plt.figure()
+plt.plot(J_vals, Pc_vals, 'o-', label='My BEM')
+plt.plot(jf_data['J'], jf_data['PC'], 's--', label='JavaFoil')
+plt.xlabel("Advance ratio J")
+plt.ylabel(r"$P_C$")
+plt.title("Power Coefficient vs Advance Ratio")
+plt.legend()
+plt.grid(True)
 plt.show()
